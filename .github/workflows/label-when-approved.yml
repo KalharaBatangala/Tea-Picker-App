@@ -1,0 +1,21 @@
+name: Label when approved
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  label-when-approved:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Label PR as "approved"
+        if: github.event.review.state == 'approved'
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: Approved
