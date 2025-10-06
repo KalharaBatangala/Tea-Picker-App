@@ -21,64 +21,81 @@ class DBHelper {
     await db.execute('''
       CREATE TABLE pickers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL
+        name TEXT NOT NULL UNIQUE
       )
     ''');
     await db.execute('''
       CREATE TABLE records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        picker_id INTEGER,
-        date TEXT NOT NULL,
-        kg REAL NOT NULL,
-        wages REAL NOT NULL,
-        FOREIGN KEY (picker_id) REFERENCES pickers(id)
+        picker_name TEXT NOT NULL,
+        weight REAL NOT NULL,
+        entered_by TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        wages REAL NOT NULL
       )
     ''');
     await db.execute('''
       CREATE TABLE config (
         id INTEGER PRIMARY KEY,
-        wage_rate REAL DEFAULT 0.0
+        wage_rate REAL DEFAULT 40.0
       )
     ''');
-    await db.insert('config', {'id': 1, 'wage_rate': 5.0}); // Default $5/kg
+    await db.insert('config', {'id': 1, 'wage_rate': 40.0});
   }
 
-  // CRUD for pickers
+  // Picker methods
   Future<int> insertPicker(String name) async {
     Database dbClient = await db;
-    return await dbClient.insert('pickers', {'name': name});
+    return await dbClient.insert('pickers', {'name': name},
+        conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
-  Future<List<Map>> getPickers() async {
+  Future<List<Map<String, dynamic>>> getPickers() async {
     Database dbClient = await db;
     return await dbClient.query('pickers');
   }
 
-  // CRUD for records
-  Future<int> insertRecord(int pickerId, String date, double kg, double wages) async {
+  Future<int> getPickerId(String name) async {
+    Database dbClient = await db;
+    List<Map> pickers =
+    await dbClient.query('pickers', where: 'name = ?', whereArgs: [name]);
+    return pickers.isNotEmpty ? pickers[0]['id'] : -1;
+  }
+
+  Future<void> deletePicker(int id) async {
+    Database dbClient = await db;
+    await dbClient.delete('pickers', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // Record methods
+  Future<int> insertRecord(String pickerName, double weight, String enteredBy,
+      String timestamp, double wages) async {
     Database dbClient = await db;
     return await dbClient.insert('records', {
-      'picker_id': pickerId,
-      'date': date,
-      'kg': kg,
+      'picker_name': pickerName,
+      'weight': weight,
+      'entered_by': enteredBy,
+      'timestamp': timestamp,
       'wages': wages,
     });
   }
 
-  Future<List<Map>> getRecords() async {
+  Future<List<Map<String, dynamic>>> getRecordsForPicker(
+      String pickerName) async {
     Database dbClient = await db;
-    return await dbClient.query('records', orderBy: 'date DESC');
+    return await dbClient.query('records',
+        where: 'picker_name = ?', whereArgs: [pickerName], orderBy: 'timestamp DESC');
   }
 
-  // Config for wage rate
+  Future<List<Map<String, dynamic>>> getAllPickersWithRecords() async {
+    Database dbClient = await db;
+    return await dbClient.rawQuery('SELECT DISTINCT picker_name FROM records');
+  }
+
+  // Config methods
   Future<double> getWageRate() async {
     Database dbClient = await db;
     List<Map> result = await dbClient.query('config', where: 'id = ?', whereArgs: [1]);
-    return result.isNotEmpty ? result[0]['wage_rate'] : 0.0;
-  }
-
-  Future<int> updateWageRate(double rate) async {
-    Database dbClient = await db;
-    return await dbClient.update('config', {'wage_rate': rate}, where: 'id = ?', whereArgs: [1]);
+    return result.isNotEmpty ? result[0]['wage_rate'] : 40.0;
   }
 }
