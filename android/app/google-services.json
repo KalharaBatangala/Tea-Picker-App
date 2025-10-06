@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "881659344689",
+    "project_id": "tea-picker-app",
+    "storage_bucket": "tea-picker-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:881659344689:android:b6b1099b6c48e6c4c96210",
+        "android_client_info": {
+          "package_name": "com.example.tea_picker_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCl_7jmOJ6Km7wlp_8cRJa4nWGHdpH-OFk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
