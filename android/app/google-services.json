@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "881659344689-feh0pfi5q92hc669djpunmp2jb53ubt9.apps.googleusercontent.com",
+          "client_id": "881659344689-g8i300m67tlt9gr8p2jfrrk1u8ep2h0a.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.example.tea_picker_app",
-            "certificate_hash": "d8caa421ae6d25465d1a5fbb2b34ba566ed73823"
+            "certificate_hash": "aec52ad3d1038c316add1c47054f579cddf203d1"
           }
         },
         {
