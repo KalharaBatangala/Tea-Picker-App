@@ -428,12 +428,16 @@
 //   }
 // }
 
+import 'package:uuid/uuid.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../database/db_helper.dart';
 import 'firestore_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -513,17 +517,19 @@ class _HomeScreenState extends State<HomeScreen> {
             ElevatedButton(
               onPressed: () async {
                 if (pickerName != null && weight != null && weight! > 0) {
+                  final String recordId = Uuid().v4();
                   String enteredBy = _auth.currentUser?.displayName ?? 'Unknown';
                   String timestamp = DateFormat('dd-MM-yyyy h:mm a').format(DateTime.now());
                   double wages = weight! * _wageRate;
-                  await _db.insertRecord(pickerName!, weight!, enteredBy, timestamp, wages);
+                  await _db.insertRecord(pickerName!, weight!, enteredBy, timestamp, wages, recordId );
                   await _firestore.uploadRecord({
+                    'id': recordId,
                     'picker_name': pickerName,
                     'weight': weight,
                     'entered_by': enteredBy,
                     'timestamp': timestamp,
                     'wages': wages,
-                    'user_uid': _auth.currentUser?.uid,
+                    // 'user_uid': _auth.currentUser?.uid,
                   });
                   _loadData();
                   Navigator.pop(context);
@@ -553,17 +559,19 @@ class _HomeScreenState extends State<HomeScreen> {
             ElevatedButton(
               onPressed: () async {
                 if (weight != null && weight! > 0) {
+                  final String recordId = Uuid().v4();
                   String enteredBy = _auth.currentUser?.displayName ?? 'Unknown';
                   String timestamp = DateFormat('dd-MM-yyyy h:mm a').format(DateTime.now());
                   double wages = weight! * _wageRate;
-                  await _db.insertRecord(pickerName, weight!, enteredBy, timestamp, wages);
+                  await _db.insertRecord(pickerName, weight!, enteredBy, timestamp, wages, recordId);
                   await _firestore.uploadRecord({
+                    'id': recordId,
                     'picker_name': pickerName,
                     'weight': weight,
                     'entered_by': enteredBy,
                     'timestamp': timestamp,
                     'wages': wages,
-                    'user_uid': _auth.currentUser?.uid,
+                    // 'user_uid': _auth.currentUser?.uid,
                   });
                   _loadData();
                   Navigator.pop(context);
@@ -577,7 +585,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _deleteEntry(String pickerName, int id, String timestamp) async {
+  Future<void> _deleteEntry(String pickerName, String recordId) async {
     bool? confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -596,8 +604,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (confirm == true) {
-      await _db.deleteRecord(id);
-      await _firestore.deleteRecord(pickerName, timestamp);
+      await _db.deleteRecord(recordId);
+      await _firestore.deleteRecord(recordId);
       _loadData();
     }
   }
@@ -655,7 +663,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (deleteMode)
                       IconButton(
                         icon: const Icon(Icons.delete),
-                        onPressed: () => _deleteEntry(pickerName, r['id'], r['timestamp']),
+                        onPressed: () => _deleteEntry(pickerName,  r['record_id']),
                       ),
                   ],
                 )),
