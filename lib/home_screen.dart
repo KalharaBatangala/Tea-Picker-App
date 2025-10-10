@@ -481,6 +481,12 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {});
   }
 
+  // NEW: Method for pull-to-refresh to sync with Firestore first
+  Future<void> _refreshData() async {
+    await _firestore.syncData(); // Sync remote changes
+    await _loadData(); // Then reload local UI
+  }
+
   Future<void> _showAddPickerDialog() async {
     String? pickerName;
     double? weight;
@@ -688,7 +694,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     String currentDate = DateFormat('dd-MM-yyyy').format(DateTime.now());
     return Scaffold(
-      body: Column(
+      body: RefreshIndicator(
+        onRefresh: _refreshData, // UPDATED: Use the new refresh method
+      child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -701,6 +709,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
+      ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddPickerDialog,
