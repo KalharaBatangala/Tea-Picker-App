@@ -166,11 +166,31 @@ class DBHelper {
     await dbClient.delete('historical_records', where: 'id = ?', whereArgs: [id]);
   }
 
+  // // Archive and Clear
+  // Future<void> archiveRecords() async {
+  //   Database dbClient = await db;
+  //   List<Map<String, dynamic>> records = await dbClient.query('records');
+  //   for (var record in records) {
+  //     await insertHistoricalRecord(
+  //       record['picker_name'],
+  //       record['weight'],
+  //       record['entered_by'],
+  //       record['timestamp'],
+  //       record['wages'],
+  //     );
+  //     // Step 2: Soft delete instead of hard delete
+  //     await deleteRecord(record['id']);
+  //   }
+  //
+  // }
+
   // Archive and Clear
   Future<void> archiveRecords() async {
     Database dbClient = await db;
     List<Map<String, dynamic>> records = await dbClient.query('records');
+
     for (var record in records) {
+      // Step 1: Archive record to historical table
       await insertHistoricalRecord(
         record['picker_name'],
         record['weight'],
@@ -178,9 +198,16 @@ class DBHelper {
         record['timestamp'],
         record['wages'],
       );
+
+      // Step 2: Soft delete instead of hard delete
+      // Add record_id to pending_deletes (for Firestore sync)
+      await insertPendingDelete(record['record_id']);
+
+      // Then delete locally (so home screen clears)
+      await deleteRecord(record['record_id']);
     }
-    await dbClient.delete('records');
   }
+
 
   // Config methods
   Future<double> getWageRate() async {
