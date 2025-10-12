@@ -52,6 +52,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'auth_service.dart';
 import 'login_screen.dart';
+import 'splash_screen.dart';
 import 'main_screen.dart'; // Update to MainScreen
 
 void main() async {
@@ -89,7 +90,7 @@ class AuthWrapper extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasData) {
-          return MainScreen(); // Navigate to MainScreen
+          return SplashScreen(); // Navigate to MainScreen
         } else {
           return LoginScreen();
         }

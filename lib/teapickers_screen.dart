@@ -104,6 +104,7 @@ class _TeaPickersScreenState extends State<TeaPickersScreen> {
         onPressed: _showAddPickerDialog,
         child: const Icon(Icons.add),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 }
