@@ -47,7 +47,8 @@ class DBHelper {
     await db.execute('''
       CREATE TABLE config (
         id INTEGER PRIMARY KEY,
-        wage_rate REAL DEFAULT 40.0
+        wage_rate REAL DEFAULT 50.0,
+        bus_fee REAL DEFAULT 100.0
       )
     ''');
     await db.execute('''
@@ -55,7 +56,7 @@ class DBHelper {
         record_id TEXT PRIMARY KEY
       )
     ''');
-    await db.insert('config', {'id': 1, 'wage_rate': 40.0});
+    await db.insert('config', {'id': 1, 'wage_rate': 50.0, 'bus_fee': 100.0,});   //default row for config table
   }
 
   // Picker methods
@@ -166,24 +167,6 @@ class DBHelper {
     await dbClient.delete('historical_records', where: 'id = ?', whereArgs: [id]);
   }
 
-  // // Archive and Clear
-  // Future<void> archiveRecords() async {
-  //   Database dbClient = await db;
-  //   List<Map<String, dynamic>> records = await dbClient.query('records');
-  //   for (var record in records) {
-  //     await insertHistoricalRecord(
-  //       record['picker_name'],
-  //       record['weight'],
-  //       record['entered_by'],
-  //       record['timestamp'],
-  //       record['wages'],
-  //     );
-  //     // Step 2: Soft delete instead of hard delete
-  //     await deleteRecord(record['id']);
-  //   }
-  //
-  // }
-
   // Archive and Clear
   Future<void> archiveRecords() async {
     Database dbClient = await db;
@@ -213,6 +196,24 @@ class DBHelper {
   Future<double> getWageRate() async {
     Database dbClient = await db;
     List<Map> result = await dbClient.query('config', where: 'id = ?', whereArgs: [1]);
-    return result.isNotEmpty ? result[0]['wage_rate'] : 40.0;
+    return result.isNotEmpty ? result[0]['wage_rate'] : 50.0;
   }
+
+  Future<double> getBusFee() async {
+    Database dbClient = await db;
+    List<Map<String, dynamic>> result = await dbClient.query('config', limit: 1);
+    return result.isNotEmpty ? result[0]['bus_fee'] : 100.0;
+  }
+
+  // update wages and bus fee
+  Future<void> updateWageRate(double value) async {
+    Database dbClient = await db;
+    await dbClient.update('config', {'wage_rate': value}, where: 'id = ?', whereArgs: [1]);
+  }
+
+  Future<void> updateBusFee(double value) async {
+    Database dbClient = await db;
+    await dbClient.update('config', {'bus_fee': value}, where: 'id = ?', whereArgs: [1]);
+  }
+
 }
