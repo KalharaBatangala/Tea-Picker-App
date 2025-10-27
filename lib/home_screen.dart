@@ -100,7 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   final String recordId = Uuid().v4();
                   String enteredBy = _auth.currentUser?.displayName ?? 'Unknown';
                   String timestamp = DateFormat('dd-MM-yyyy h:mm a').format(DateTime.now());
-                  double wages = weight! * _wageRate;
+                  double wages = weight! * _wageRate + _busFee;
                   await _db.insertRecord(pickerName!, weight!, enteredBy, timestamp, wages, recordId );
                   await _firestore.uploadRecord({
                     'id': recordId,
@@ -142,7 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   final String recordId = Uuid().v4();
                   String enteredBy = _auth.currentUser?.displayName ?? 'Unknown';
                   String timestamp = DateFormat('dd-MM-yyyy h:mm a').format(DateTime.now());
-                  double wages = weight! * _wageRate;
+                  double wages = weight! * _wageRate + _busFee;
                   await _db.insertRecord(pickerName, weight!, enteredBy, timestamp, wages, recordId);
                   await _firestore.uploadRecord({
                     'id': recordId,
@@ -200,7 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
         List<Map<String, dynamic>> records = snapshot.data!;
         double totalKg = records.fold(0.0, (sum, r) => sum + r['weight']);
         double totalWages = records.fold(0.0, (sum, r) => sum + r['wages']);
-        totalWages = totalWages + _busFee;
+        //totalWages = totalWages + _busFee;
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
           child: Padding(

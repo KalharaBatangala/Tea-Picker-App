@@ -145,41 +145,107 @@ class FirestoreService {
   }
 
 
+  // Future<void> syncHistoricalRecords() async {
+  //   String uid = _auth.currentUser?.uid ?? '';
+  //   QuerySnapshot cloudHistorical = await _firestore
+  //       .collection('historical_records')
+  //       // .where('user_uid', isEqualTo: uid)
+  //       .get();
+  //   //download if missing
+  //   for (var doc in cloudHistorical.docs) {
+  //     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+  //     List<Map> existing = await _db.db.then((db) => db.query(
+  //       'historical_records',
+  //       where: 'timestamp = ? AND picker_name = ?',
+  //       whereArgs: [data['timestamp'], data['picker_name']],
+  //     ));
+  //     if (existing.isEmpty) {
+  //       await _db.insertHistoricalRecord(
+  //         data['picker_name'],
+  //         data['weight'],
+  //         data['entered_by'],
+  //         data['timestamp'],
+  //         data['wages']
+  //       );
+  //     }
+  //   }
+  //   // Upload local historical to cloud if missing
+  //   List<Map<String, dynamic>> localHistorical =
+  //   await _db.db.then((db) => db.query('historical_records'));
+  //   for (var record in localHistorical) {
+  //     QuerySnapshot existing = await _firestore
+  //         .collection('historical_records')
+  //         // .where('user_uid', isEqualTo: uid)
+  //         .where('record_id', isEqualTo: recordId)
+  //         .get();
+  //     if (existing.docs.isEmpty) {
+  //       await _firestore.collection('historical_records').add({
+  //         'picker_name': record['picker_name'],
+  //         'weight': record['weight'],
+  //         'entered_by': record['entered_by'],
+  //         'timestamp': record['timestamp'],
+  //         'wages': record['wages'],
+  //         // 'user_uid': uid,
+  //       });
+  //     }
+  //   }
+  // }
+
   Future<void> syncHistoricalRecords() async {
     String uid = _auth.currentUser?.uid ?? '';
+
+    // --- Download: Firestore -> Local ---
     QuerySnapshot cloudHistorical = await _firestore
         .collection('historical_records')
-        // .where('user_uid', isEqualTo: uid)
+    // .where('user_uid', isEqualTo: uid)
         .get();
+
     for (var doc in cloudHistorical.docs) {
       Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+      // Prefer explicit record_id field; fall back to Firestore doc ID for legacy docs
+      final String recordId = (data['record_id'] as String?) ?? doc.id;
+
+      // Check if this record_id already exists locally
       List<Map> existing = await _db.db.then((db) => db.query(
         'historical_records',
-        where: 'timestamp = ? AND picker_name = ?',
-        whereArgs: [data['timestamp'], data['picker_name']],
+        where: 'record_id = ?',
+        whereArgs: [recordId],
       ));
+
       if (existing.isEmpty) {
+        // insert locally (uses your insertHistoricalRecord that accepts recordId)
         await _db.insertHistoricalRecord(
-          data['picker_name'],
-          data['weight'],
-          data['entered_by'],
-          data['timestamp'],
-          data['wages'],
+          data['picker_name'] as String,
+          (data['weight'] as num).toDouble(),
+          data['entered_by'] as String,
+          data['timestamp'] as String,
+          (data['wages'] as num).toDouble(),
+          recordId,
         );
       }
     }
-    // Upload local historical to cloud if missing
+
+    // --- Upload: Local -> Firestore ---
     List<Map<String, dynamic>> localHistorical =
     await _db.db.then((db) => db.query('historical_records'));
+
     for (var record in localHistorical) {
-      QuerySnapshot existing = await _firestore
-          .collection('historical_records')
-          // .where('user_uid', isEqualTo: uid)
-          .where('timestamp', isEqualTo: record['timestamp'])
-          .where('picker_name', isEqualTo: record['picker_name'])
-          .get();
-      if (existing.docs.isEmpty) {
-        await _firestore.collection('historical_records').add({
+      final String? recordId = record['record_id'] as String?;
+      if (recordId == null || recordId.isEmpty) {
+        // legacy local rows without record_id -> skip or generate an id
+        // Option: generate UUID and update the row — for now we skip
+        continue;
+      }
+
+      // Use the record_id as Firestore document id (idempotent)
+      final docRef = _firestore.collection('historical_records').doc(recordId);
+
+      // Optionally check existence first (not strictly required when using set)
+      final snapshot = await docRef.get();
+      if (!snapshot.exists) {
+        await docRef.set({
+          'record_id': recordId,
           'picker_name': record['picker_name'],
           'weight': record['weight'],
           'entered_by': record['entered_by'],
@@ -187,9 +253,13 @@ class FirestoreService {
           'wages': record['wages'],
           // 'user_uid': uid,
         });
+      } else {
+        // If you want to ensure cloud always matches local, you can optionally update:
+        // await docRef.set({...}, SetOptions(merge: true));
       }
     }
   }
+
 
   Future<void> uploadRecord(Map<String, dynamic> record) async {
     if (await isOnline()) {

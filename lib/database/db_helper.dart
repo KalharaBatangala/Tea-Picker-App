@@ -41,7 +41,8 @@ class DBHelper {
         weight REAL NOT NULL,
         entered_by TEXT NOT NULL,
         timestamp TEXT NOT NULL,
-        wages REAL NOT NULL
+        wages REAL NOT NULL,
+        record_id TEXT NOT NULL UNIQUE
       )
     ''');
     await db.execute('''
@@ -139,7 +140,7 @@ class DBHelper {
 
   // Historical methods (permanent)
   Future<int> insertHistoricalRecord(String pickerName, double weight, String enteredBy,
-      String timestamp, double wages) async {
+      String timestamp, double wages, String recordId,) async {
     Database dbClient = await db;
     return await dbClient.insert('historical_records', {
       'picker_name': pickerName,
@@ -147,7 +148,10 @@ class DBHelper {
       'entered_by': enteredBy,
       'timestamp': timestamp,
       'wages': wages,
-    });
+      'record_id': recordId,
+    },
+      conflictAlgorithm: ConflictAlgorithm.ignore, // <- ignores duplicates
+    );
   }
 
   Future<List<Map<String, dynamic>>> getHistoricalRecordsForPicker(
@@ -180,6 +184,7 @@ class DBHelper {
         record['entered_by'],
         record['timestamp'],
         record['wages'],
+        record['record_id'], // same ID as the live record
       );
 
       // Step 2: Soft delete instead of hard delete
