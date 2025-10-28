@@ -6,7 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../database/db_helper.dart';
 import 'firestore_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import './services/report_service.dart';
+import './services/notification_service.dart';
 
 
 
@@ -21,6 +22,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final DBHelper _db = DBHelper();
   final FirestoreService _firestore = FirestoreService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final reportService = ReportService();
+
   List<Map<String, dynamic>> _pickers = [];
   double _wageRate = 40.0;
   double _busFee = 0;
@@ -32,6 +35,10 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _archiveIfNewDay();
     _loadData();
+
+    //NotificationService.showMonthlyReportNotification(title: "Total Tea Leaves for this month", body: "Weight: 625Kg  \nCost: Rs:20,000");
+    NotificationService.scheduleEndOfMonthNotification(title: "Total Tea Leaves for this month", body: "Weight: 625Kg  \nCost: Rs:20,000");
+
   }
 
   Future<void> _archiveIfNewDay() async {

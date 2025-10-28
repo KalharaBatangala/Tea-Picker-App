@@ -54,10 +54,23 @@ import 'auth_service.dart';
 import 'login_screen.dart';
 import 'splash_screen.dart';
 import 'main_screen.dart'; // Update to MainScreen
+import './services/notification_service.dart';
+import './services/report_service.dart';
+
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+
+  // Initialize notification plugin
+  await NotificationService.init();
+
+  // ⛔ IMPORTANT FOR ANDROID 13+ ⛔
+  await NotificationService.requestPermission();
+
+  // Schedule end-of-month notification
+  // await NotificationService.scheduleEndOfMonthNotification(title: "Hello", body: "World");
   runApp(const MyApp());
 }
 
