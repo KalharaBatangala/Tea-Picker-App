@@ -49,11 +49,11 @@ class ReportService {
     final formattedMonth = DateFormat('MMMM yyyy').format(DateTime(year, month));
 
     // Schedule a notification at end of month with the totals (NotificationService handles scheduling)
-    await NotificationService.scheduleEndOfMonthNotification(
-      title: 'Monthly Report Reminder - $formattedMonth',
-      body:
-      'Total weight: ${totalWeight.toStringAsFixed(2)} kg\nTotal wages: Rs. ${totalWages.toStringAsFixed(2)}\nPlease enter revenue to generate your profit report.',
-    );
+    // await NotificationService.scheduleEndOfMonthNotification(
+    //   title: 'Monthly Report Reminder - $formattedMonth',
+    //   body:
+    //   'Total weight: ${totalWeight.toStringAsFixed(2)} kg\nTotal wages: Rs. ${totalWages.toStringAsFixed(2)}\nPlease enter revenue to generate your profit report.',
+    // );
   }
 
   /// For quick testing during development — show immediate notification with current-month totals.
@@ -88,10 +88,10 @@ class ReportService {
 
     final formattedMonth = DateFormat('MMMM yyyy').format(DateTime(year, month));
 
-    await NotificationService.showMonthlyReportNotification(
-      title: 'Monthly Summary - $formattedMonth',
-      body:
-      'Total weight: ${totalWeight.toStringAsFixed(2)} kg\nTotal wages: Rs. ${totalWages.toStringAsFixed(2)}\nPlease open the app to enter revenue.',
-    );
+    // await NotificationService.showMonthlyReportNotification(
+    //   title: 'Monthly Summary - $formattedMonth',
+    //   body:
+    //   'Total weight: ${totalWeight.toStringAsFixed(2)} kg\nTotal wages: Rs. ${totalWages.toStringAsFixed(2)}\nPlease open the app to enter revenue.',
+    // );
   }
 }

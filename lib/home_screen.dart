@@ -35,10 +35,36 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _archiveIfNewDay();
     _loadData();
+    _scheduleDailySummaryNotification();
 
-    //NotificationService.showMonthlyReportNotification(title: "Total Tea Leaves for this month", body: "Weight: 625Kg  \nCost: Rs:20,000");
-    NotificationService.scheduleEndOfMonthNotification(title: "Total Tea Leaves for this month", body: "Weight: 625Kg  \nCost: Rs:20,000");
 
+    // NotificationService.scheduleDailyAtTimeIfNotScheduled(
+    //   id: 100,
+    //   title: '🌿 Daily Summary',
+    //   body: 'Total weight today: ... \nTotal cost: ...',
+    //   hour: 18,
+    //   minute: 0,
+    // );
+  }
+
+  Future<void> _scheduleDailySummaryNotification() async {
+    // Get the total monthly summary up to today
+    final summary = await _db.getMonthlySummaryUpToToday();
+    double totalWeight = summary['weight'] ?? 0.0;
+    double totalWages = summary['wages'] ?? 0.0;
+
+    // Format for better readability
+    String formattedWeight = totalWeight.toStringAsFixed(2);
+    String formattedWages = totalWages.toStringAsFixed(2);
+
+    // Schedule the notification
+     NotificationService.scheduleDailyAtTimeIfNotScheduled(
+      id: 200,
+      title: '🌿 Tea Leaves Summary',
+      body: 'Weight: ${formattedWeight} kg\nCost: Rs. ${formattedWages}',
+      hour: 18,               //DateTime.now().hour --> for this our,
+      minute: 0,              //DateTime.now().minute + 1, --> next minute
+    );
   }
 
   Future<void> _archiveIfNewDay() async {

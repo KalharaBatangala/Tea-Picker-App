@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:intl/intl.dart';
 
 class DBHelper {
   static Database? _db;
@@ -220,5 +221,47 @@ class DBHelper {
     Database dbClient = await db;
     await dbClient.update('config', {'bus_fee': value}, where: 'id = ?', whereArgs: [1]);
   }
+
+
+  // Fetch total weight and wages for the current month (from historical + today's records)
+  Future<Map<String, double>> getMonthlySummaryUpToToday() async {
+    Database dbClient = await db;
+    DateTime now = DateTime.now();
+    String currentMonth = '${now.month.toString().padLeft(2, '0')}-${now.year}';
+
+    // 1️⃣ Historical records (already archived)
+    List<Map<String, dynamic>> historical = await dbClient.query(
+      'historical_records',
+      where: "timestamp LIKE ?",
+      whereArgs: ['%$currentMonth%'],
+    );
+
+    double totalWeight = 0.0;
+    double totalWages = 0.0;
+
+    for (var record in historical) {
+      totalWeight += record['weight'] ?? 0.0;
+      totalWages += record['wages'] ?? 0.0;
+    }
+
+    // 2️⃣ Today's unarchived records
+    String today = DateFormat('dd-MM-yyyy').format(now);
+    List<Map<String, dynamic>> todayRecords = await dbClient.query(
+      'records',
+      where: "timestamp LIKE ?",
+      whereArgs: ['%$today%'],
+    );
+
+    for (var record in todayRecords) {
+      totalWeight += record['weight'] ?? 0.0;
+      totalWages += record['wages'] ?? 0.0;
+    }
+
+    return {
+      'weight': totalWeight,
+      'wages': totalWages,
+    };
+  }
+
 
 }
