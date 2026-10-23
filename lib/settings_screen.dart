@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import '../database/db_helper.dart';
+import 'firestore_service.dart';
+import 'services/migration_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -9,13 +12,12 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final DBHelper _db = DBHelper();
-
-  double _wageRate = 0.0;
-  double _busFee = 0.0;
+  final FirestoreService _firestore = FirestoreService();
+  StreamSubscription<Rates>? _ratesSub;
 
   bool _isWageEditable = false;
   bool _isBusEditable = false;
+  bool _importing = false;
 
   final TextEditingController _wageController = TextEditingController();
   final TextEditingController _busController = TextEditingController();
@@ -23,40 +25,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSettings();
-  }
-
-  Future<void> _loadSettings() async {
-    double wageRate = await _db.getWageRate();
-    double busFee = await _db.getBusFee();
-    setState(() {
-      _wageRate = wageRate;
-      _busFee = busFee;
-      _wageController.text = wageRate.toString();
-      _busController.text = busFee.toString();
+    // Rates are shared by all phones; follow changes made elsewhere unless
+    // the user is currently editing that field.
+    _ratesSub = _firestore.rates().listen((rates) {
+      if (!_isWageEditable) _wageController.text = rates.wageRate.toString();
+      if (!_isBusEditable) _busController.text = rates.busFee.toString();
     });
   }
 
-  Future<void> _saveWageRate() async {
-    double? value = double.tryParse(_wageController.text);
+  @override
+  void dispose() {
+    _ratesSub?.cancel();
+    _wageController.dispose();
+    _busController.dispose();
+    super.dispose();
+  }
+
+  void _showMessage(String text) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+
+  void _saveWageRate() {
+    double? value = double.tryParse(_wageController.text.trim().replaceAll(',', '.'));
     if (value != null && value > 0) {
-      await _db.updateWageRate(value);
-      setState(() => _wageRate = value);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Wage rate updated successfully!')),
-      );
+      _firestore.saveWageRate(value);
+      _showMessage('Wage rate updated successfully!');
+    } else {
+      _showMessage('Please enter a valid wage rate');
     }
   }
 
-  Future<void> _saveBusFee() async {
-    double? value = double.tryParse(_busController.text);
+  void _saveBusFee() {
+    double? value = double.tryParse(_busController.text.trim().replaceAll(',', '.'));
     if (value != null && value >= 0) {
-      await _db.updateBusFee(value);
-      setState(() => _busFee = value);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bus fee updated successfully!')),
-      );
+      _firestore.saveBusFee(value);
+      _showMessage('Bus fee updated successfully!');
+    } else {
+      _showMessage('Please enter a valid bus fee');
     }
+  }
+
+  Future<void> _importOldData() async {
+    setState(() => _importing = true);
+    final result = await MigrationService.run(force: true);
+    if (!mounted) return;
+    setState(() => _importing = false);
+    _showMessage(result ?? 'Old data checked.');
   }
 
   Widget _buildEditableRow({
@@ -99,7 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   TextField(
                     controller: controller,
                     enabled: isEditable,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
                       labelText: label,
                       border: OutlineInputBorder(
@@ -126,7 +139,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
@@ -155,6 +167,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _saveBusFee();
               setState(() => _isBusEditable = false);
             },
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+            child: Text(
+              'Rates are shared by all family phones. The bus fee is added once per picker per day. '
+              'Changing a rate only affects new entries.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+          Card(
+            margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+            elevation: 3,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: const Icon(Icons.cloud_sync, color: Colors.green),
+              title: const Text('Import data from old app'),
+              subtitle: const Text('Safe to repeat – only adds records that are missing'),
+              trailing: _importing
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                  : null,
+              onTap: _importing ? null : _importOldData,
+            ),
           ),
         ],
       ),

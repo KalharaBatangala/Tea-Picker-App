@@ -101,6 +101,7 @@
 
 
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tzdata;
@@ -134,9 +135,9 @@ class NotificationService {
         ?.requestNotificationsPermission();
 
     if (granted == true) {
-      print('✅ Notification permission granted');
+      debugPrint('✅ Notification permission granted');
     } else {
-      print('⚠️ Notification permission denied');
+      debugPrint('⚠️ Notification permission denied');
     }
   }
 
@@ -196,10 +197,10 @@ class NotificationService {
     try {
       // Always cancel previous instance of this ID
       await _notificationsPlugin.cancel(id);
-      print('Cancelled previous notification id: $id');
+      debugPrint('Cancelled previous notification id: $id');
       final already = await isNotificationScheduled(id);
       if (already) {
-        print('🔁 Notification id $id already scheduled — skipping.');
+        debugPrint('🔁 Notification id $id already scheduled — skipping.');
         return;
       }
 
@@ -227,10 +228,10 @@ class NotificationService {
         matchDateTimeComponents: DateTimeComponents.time, // repeat daily at same time
       );
 
-      print('✅ Scheduled daily notification id $id at $hour:$minute (first at $scheduledDate)');
+      debugPrint('✅ Scheduled daily notification id $id at $hour:$minute (first at $scheduledDate)');
     } catch (e) {
       // If scheduling fails (permissions, device policy), don't crash the app.
-      print('⚠️ Failed to schedule daily notification id $id: $e');
+      debugPrint('⚠️ Failed to schedule daily notification id $id: $e');
     }
   }
 }

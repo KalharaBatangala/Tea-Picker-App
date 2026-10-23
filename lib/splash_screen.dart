@@ -14,10 +14,11 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     // Delay for a few seconds before navigating to home
-    Timer(const Duration(seconds: 2), () {
+    Timer(const Duration(seconds: 1), () {
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => MainScreen()),
+        MaterialPageRoute(builder: (context) => const MainScreen()),
       );
     });
   }
@@ -33,7 +34,7 @@ class _SplashScreenState extends State<SplashScreen> {
             // Your app logo
             Image.asset(
               'assets/icons/app_icon.png', // use your logo path here
-              height: 531,
+              height: MediaQuery.of(context).size.height * 0.45,
             ),
             const SizedBox(height: 20),
 

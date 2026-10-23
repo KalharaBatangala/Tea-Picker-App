@@ -1,351 +1,163 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import '../database/db_helper.dart';
+import 'package:flutter/foundation.dart';
+import 'models/tea_entry.dart';
 
+class Picker {
+  final String id;
+  final String name;
+  final bool active;
+  const Picker(this.id, this.name, this.active);
+}
+
+class Rates {
+  final double wageRate;
+  final double busFee;
+
+  /// False until the shared rates have been loaded at least once (a new phone
+  /// that is offline only knows the defaults).
+  final bool known;
+  const Rates(this.wageRate, this.busFee, {this.known = true});
+  static const defaults = Rates(50.0, 100.0, known: false);
+}
+
+/// Single source of truth for all shared data.
+///
+/// Firestore keeps an offline copy on every phone: reads come from that copy
+/// instantly, writes are applied locally first and uploaded automatically when
+/// the phone is back online. Every document has a fixed id (UUID for entries,
+/// normalised name for pickers), so retrying or re-uploading a write can never
+/// create a duplicate. Writes are intentionally NOT awaited – an awaited write
+/// only completes once the server confirms it, which freezes the UI offline.
 class FirestoreService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final DBHelper _db = DBHelper();
+  static final FirebaseFirestore _fs = FirebaseFirestore.instance;
 
-  Future<bool> isOnline() async {
-    var connectivityResult = await Connectivity().checkConnectivity();
-    return connectivityResult.contains(ConnectivityResult.mobile) ||
-        connectivityResult.contains(ConnectivityResult.wifi);
+  /// Last cloud error (e.g. permission denied) so the UI can show it.
+  static final ValueNotifier<String?> lastError = ValueNotifier(null);
+
+  static CollectionReference<Map<String, dynamic>> get entries => _fs.collection('entries');
+  static CollectionReference<Map<String, dynamic>> get pickers => _fs.collection('tea_pickers');
+  static DocumentReference<Map<String, dynamic>> get ratesDoc =>
+      _fs.collection('settings').doc('rates');
+
+  static void configure() {
+    _fs.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    );
   }
 
-  Future<void> syncData() async {
-    if (await isOnline()) {
-      await syncPickers();
-      await syncRecords();
-      await syncHistoricalRecords();
-    }
+  static void _report(Object e) {
+    debugPrint('Firestore error: $e');
+    lastError.value = e is FirebaseException ? '${e.code}: ${e.message}' : '$e';
   }
 
-  Future<void> syncPickers() async {
-    String uid = _auth.currentUser?.uid ?? '';
-    QuerySnapshot cloudPickers = await _firestore
-        .collection('pickers')
-        // .where('user_uid', isEqualTo: uid)
-        .get();
-    for (var doc in cloudPickers.docs) {
-      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-      int localId = await _db.getPickerId(data['name']);
-      if (localId == -1) {
-        await _db.insertPicker(data['name']);
-      }
-    }
+  static List<TeaEntry> _toEntries(QuerySnapshot<Map<String, dynamic>> snap) => snap.docs
+      .map(TeaEntry.fromDoc)
+      .where((e) => !e.deleted)
+      .toList()
+    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
-    List<Map<String, dynamic>> localPickers = await _db.getPickers();
-    for (var picker in localPickers) {
-      QuerySnapshot existing = await _firestore
-          .collection('pickers')
-          // .where('user_uid', isEqualTo: uid)
-          .where('name', isEqualTo: picker['name'])
-          .get();
-      if (existing.docs.isEmpty) {
-        await _firestore.collection('pickers').add({
-          'name': picker['name'],
-          // 'user_uid': uid,
-        });
-      }
-    }
-  }
+  // ---------- Entries ----------
 
-  Future<void> syncRecords() async {
-    String uid = _auth.currentUser?.uid ?? '';
+  Stream<List<TeaEntry>> entriesForDay(String day) => entries
+      .where('date', isEqualTo: day)
+      .snapshots(includeMetadataChanges: true)
+      .map(_toEntries);
 
-    // Process pending deletes first (we're online at this point)
-    List<String> pendingDeletes = await _db.getPendingDeletes();
-    for (String recordId in pendingDeletes) {
-      try {
-        QuerySnapshot snapshot = await _firestore
-            .collection('records')
-            .where('id', isEqualTo: recordId)
-            // .where('user_uid', isEqualTo: uid)
-            .get();
-        for (var doc in snapshot.docs) {
-          await doc.reference.update({'deleted': true});
-        }
-        await _db.removePendingDelete(recordId);
-      } catch (e) {
-        print('Pending Delete Error for $recordId: $e');
-        // Keep in pending for next sync
-      }
-    }
+  Stream<List<TeaEntry>> entriesForMonth(String month) => entries
+      .where('month', isEqualTo: month)
+      .snapshots(includeMetadataChanges: true)
+      .map(_toEntries);
 
-    // Step 1: Get all Firestore records for this user
-    QuerySnapshot cloudRecords = await _firestore
-        .collection('records')
-        // .where('user_uid', isEqualTo: uid)
-        .get();
-
-    // Step 2: Sync from Cloud → Local
-    for (var doc in cloudRecords.docs) {
-      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-      bool isDeleted = data['deleted'] == true;
-
-      final recordId = data['id']; // UUID
-
-      if (isDeleted) {
-        // If marked deleted in cloud → delete locally too
-        await _db.db.then((db) => db.delete(
-          'records',
-          where: 'record_id = ?',
-          whereArgs: [recordId],
-        ));
-        continue;
-      }
-
-      // If not deleted → ensure it exists locally
-      List<Map> existing = await _db.db.then((db) => db.query(
-        'records',
-        where: 'record_id = ?',
-        whereArgs: [recordId],
-      ));
-
-      if (existing.isEmpty) {
-        await _db.insertRecord(
-          data['picker_name'],
-          (data['weight'] as num).toDouble(),
-          data['entered_by'],
-          data['timestamp'],
-          (data['wages'] as num).toDouble(),
-          recordId,
-        );
-      }
-    }
-
-    // Step 3: Sync from Local → Cloud
-    List<Map<String, dynamic>> localRecords =
-    await _db.db.then((db) => db.query('records'));
-
-    for (var record in localRecords) {
-      final recordId = record['record_id'];
-
-      QuerySnapshot existing = await _firestore
-          .collection('records')
-          // .where('user_uid', isEqualTo: uid)
-          .where('id', isEqualTo: recordId)
-          .get();
-
-      if (existing.docs.isEmpty) {
-        await _firestore.collection('records').add({
-          'id': recordId,
-          'picker_name': record['picker_name'],
-          'weight': record['weight'],
-          'entered_by': record['entered_by'],
-          'timestamp': record['timestamp'],
-          'wages': record['wages'],
-          // 'user_uid': uid,
-          'deleted': false,
-        });
-      }
-    }
-  }
-
-
-  // Future<void> syncHistoricalRecords() async {
-  //   String uid = _auth.currentUser?.uid ?? '';
-  //   QuerySnapshot cloudHistorical = await _firestore
-  //       .collection('historical_records')
-  //       // .where('user_uid', isEqualTo: uid)
-  //       .get();
-  //   //download if missing
-  //   for (var doc in cloudHistorical.docs) {
-  //     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-  //     List<Map> existing = await _db.db.then((db) => db.query(
-  //       'historical_records',
-  //       where: 'timestamp = ? AND picker_name = ?',
-  //       whereArgs: [data['timestamp'], data['picker_name']],
-  //     ));
-  //     if (existing.isEmpty) {
-  //       await _db.insertHistoricalRecord(
-  //         data['picker_name'],
-  //         data['weight'],
-  //         data['entered_by'],
-  //         data['timestamp'],
-  //         data['wages']
-  //       );
-  //     }
-  //   }
-  //   // Upload local historical to cloud if missing
-  //   List<Map<String, dynamic>> localHistorical =
-  //   await _db.db.then((db) => db.query('historical_records'));
-  //   for (var record in localHistorical) {
-  //     QuerySnapshot existing = await _firestore
-  //         .collection('historical_records')
-  //         // .where('user_uid', isEqualTo: uid)
-  //         .where('record_id', isEqualTo: recordId)
-  //         .get();
-  //     if (existing.docs.isEmpty) {
-  //       await _firestore.collection('historical_records').add({
-  //         'picker_name': record['picker_name'],
-  //         'weight': record['weight'],
-  //         'entered_by': record['entered_by'],
-  //         'timestamp': record['timestamp'],
-  //         'wages': record['wages'],
-  //         // 'user_uid': uid,
-  //       });
-  //     }
-  //   }
-  // }
-
-  Future<void> syncHistoricalRecords() async {
-    String uid = _auth.currentUser?.uid ?? '';
-
-    // --- Download: Firestore -> Local ---
-    QuerySnapshot cloudHistorical = await _firestore
-        .collection('historical_records')
-    // .where('user_uid', isEqualTo: uid)
-        .get();
-
-    for (var doc in cloudHistorical.docs) {
-      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
-      // Prefer explicit record_id field; fall back to Firestore doc ID for legacy docs
-      final String recordId = (data['record_id'] as String?) ?? doc.id;
-
-      // Check if this record_id already exists locally
-      List<Map> existing = await _db.db.then((db) => db.query(
-        'historical_records',
-        where: 'record_id = ?',
-        whereArgs: [recordId],
-      ));
-
-      if (existing.isEmpty) {
-        // insert locally (uses your insertHistoricalRecord that accepts recordId)
-        await _db.insertHistoricalRecord(
-          data['picker_name'] as String,
-          (data['weight'] as num).toDouble(),
-          data['entered_by'] as String,
-          data['timestamp'] as String,
-          (data['wages'] as num).toDouble(),
-          recordId,
-        );
-      }
-    }
-
-    // --- Upload: Local -> Firestore ---
-    List<Map<String, dynamic>> localHistorical =
-    await _db.db.then((db) => db.query('historical_records'));
-
-    for (var record in localHistorical) {
-      final String? recordId = record['record_id'] as String?;
-      if (recordId == null || recordId.isEmpty) {
-        // legacy local rows without record_id -> skip or generate an id
-        // Option: generate UUID and update the row — for now we skip
-        continue;
-      }
-
-      // Use the record_id as Firestore document id (idempotent)
-      final docRef = _firestore.collection('historical_records').doc(recordId);
-
-      // Optionally check existence first (not strictly required when using set)
-      final snapshot = await docRef.get();
-      if (!snapshot.exists) {
-        await docRef.set({
-          'record_id': recordId,
-          'picker_name': record['picker_name'],
-          'weight': record['weight'],
-          'entered_by': record['entered_by'],
-          'timestamp': record['timestamp'],
-          'wages': record['wages'],
-          // 'user_uid': uid,
-        });
-      } else {
-        // If you want to ensure cloud always matches local, you can optionally update:
-        // await docRef.set({...}, SetOptions(merge: true));
-      }
-    }
-  }
-
-
-  Future<void> uploadRecord(Map<String, dynamic> record) async {
-    if (await isOnline()) {
-      try {
-        record['deleted'] = false;
-        await _firestore.collection('records').add(record);
-      } catch (e) {
-        print('Firestore Upload Error: $e');
-      }
-    }
-  }
-
-  Future<void> addPicker(String name) async {
-    if (await isOnline()) {
-      try {
-        await _firestore.collection('pickers').add({
-          'name': name,
-          // 'user_uid': _auth.currentUser?.uid,
-        });
-      } catch (e) {
-        print('Firestore Picker Add Error: $e');
-      }
-    }
-  }
-
-  Future<void> deletePicker(String name) async {
-    if (await isOnline()) {
-      try {
-        QuerySnapshot snapshot = await _firestore
-            .collection('pickers')
-            .where('name', isEqualTo: name)
-            // .where('user_uid', isEqualTo: _auth.currentUser?.uid)
-            .get();
-        for (var doc in snapshot.docs) {
-          await doc.reference.delete();
-        }
-      } catch (e) {
-        print('Firestore Picker Delete Error: $e');
-      }
-    }
-  }
-
-  Future<void> uploadHistoricalRecord(Map<String, dynamic> record) async {
-    if (await isOnline()) {
-      try {
-        await _firestore.collection('historical_records').add(record);
-      } catch (e) {
-        print('Firestore Historical Upload Error: $e');
-      }
-    }
-  }
-
-  Future<void> deleteHistoricalRecord(String pickerName, String timestamp) async {
-    if (await isOnline()) {
-      try {
-        QuerySnapshot snapshot = await _firestore
-            .collection('historical_records')
-            .where('picker_name', isEqualTo: pickerName)
-            .where('timestamp', isEqualTo: timestamp)
-            // .where('user_uid', isEqualTo: _auth.currentUser?.uid)
-            .get();
-        for (var doc in snapshot.docs) {
-          await doc.reference.delete();
-        }
-      } catch (e) {
-        print('Firestore Historical Delete Error: $e');
-      }
-    }
-  }
-
-  Future<void> deleteRecord(String recordId) async {
+  Future<List<TeaEntry>> getEntriesForMonth(String month, {bool cacheOnly = false}) async {
+    final query = entries.where('month', isEqualTo: month);
+    QuerySnapshot<Map<String, dynamic>> snap;
     try {
-      // String uid = _auth.currentUser?.uid ?? '';
-      QuerySnapshot snapshot = await _firestore
-          .collection('records')
-          .where('id', isEqualTo: recordId)
-          // .where('user_uid', isEqualTo: uid)
-          .get();
+      snap = await query
+          .get(GetOptions(source: cacheOnly ? Source.cache : Source.serverAndCache))
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      snap = await query.get(const GetOptions(source: Source.cache));
+    }
+    return _toEntries(snap);
+  }
 
-      for (var doc in snapshot.docs) {
-        await doc.reference.update({'deleted': true});
-      }
+  /// Pull-to-refresh: ask the server for fresh data (the live listeners pick it
+  /// up). Fails quietly when offline.
+  Future<void> refreshFromServer(Query<Map<String, dynamic>> query) async {
+    try {
+      await query.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 15));
+      lastError.value = null;
     } catch (e) {
-      await _db.insertPendingDelete(recordId);
-      print('Firestore Record Delete Error: $e');
+      debugPrint('Refresh skipped: $e');
     }
   }
 
+  void addEntry(TeaEntry entry) {
+    entries.doc(entry.id).set({
+      ...entry.toMap(),
+      'updated_at': FieldValue.serverTimestamp(),
+    }).catchError(_report);
+  }
+
+  void deleteEntry(String id, {String? deletedBy}) {
+    entries.doc(id).set({
+      'deleted': true,
+      'deleted_by': deletedBy,
+      'deleted_at': DateTime.now().millisecondsSinceEpoch,
+      'updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true)).catchError(_report);
+  }
+
+  // ---------- Pickers ----------
+
+  Stream<List<Picker>> pickerList({bool activeOnly = true}) =>
+      pickers.snapshots().map((snap) {
+        final list = snap.docs
+            .map((d) => Picker(d.id, (d.data()['name'] as String?) ?? d.id, d.data()['active'] != false))
+            .where((p) => !activeOnly || p.active)
+            .toList();
+        list.sort((a, b) => a.id.compareTo(b.id));
+        return list;
+      });
+
+  void addPicker(String name) {
+    pickers.doc(pickerKey(name)).set({
+      'name': name.trim(),
+      'active': true,
+      'updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true)).catchError(_report);
+  }
+
+  /// Soft delete so the picker can't be resurrected by another phone.
+  void deletePicker(String id) {
+    pickers.doc(id).set({
+      'active': false,
+      'updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true)).catchError(_report);
+  }
+
+  // ---------- Rates (shared by every phone) ----------
+
+  Stream<Rates> rates() => ratesDoc.snapshots().map((d) {
+        final data = d.data();
+        if (data == null) {
+          // Missing on the server = never set, so the defaults really apply.
+          return d.metadata.isFromCache ? Rates.defaults : const Rates(50.0, 100.0);
+        }
+        return Rates(
+          (data['wage_rate'] as num?)?.toDouble() ?? Rates.defaults.wageRate,
+          (data['bus_fee'] as num?)?.toDouble() ?? Rates.defaults.busFee,
+        );
+      });
+
+  void saveWageRate(double value) => ratesDoc.set(
+      {'wage_rate': value, 'updated_at': FieldValue.serverTimestamp()},
+      SetOptions(merge: true)).catchError(_report);
+
+  void saveBusFee(double value) => ratesDoc.set(
+      {'bus_fee': value, 'updated_at': FieldValue.serverTimestamp()},
+      SetOptions(merge: true)).catchError(_report);
 }

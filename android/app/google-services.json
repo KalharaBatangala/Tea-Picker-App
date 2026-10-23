@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "881659344689-gug8igolf5sdoqvqk7vrkj68drkcef1c.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.tea_picker_app",
+            "certificate_hash": "5fc38959b96e1c36c0c952f69a6f01725e2b21af"
+          }
+        },
+        {
           "client_id": "881659344689-qm10jdkmnkkg14dpmu0ivrc887gko0d6.apps.googleusercontent.com",
           "client_type": 3
         }
