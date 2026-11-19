@@ -8,6 +8,10 @@ import 'firestore_service.dart';
 import 'models/tea_entry.dart';
 import './services/report_service.dart';
 
+/// Daily entry screen. Shows today by default, but any earlier day can be
+/// selected to add weights that were missed (e.g. while nobody was at home).
+/// Every entry keeps two dates: `date` = the day the tea was picked (used for
+/// all totals and reports) and `created_at` = when it was typed in.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -20,8 +24,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ReportService _reportService = ReportService();
 
+  /// Earliest day the calendar allows going back to.
+  static final DateTime _firstDay = DateTime(2020);
+
   late String _today;
-  late Stream<List<TeaEntry>> _todayEntries;
+  late String _selectedDay;
+  late Stream<List<TeaEntry>> _dayEntries;
   late final Stream<List<Picker>> _pickers = _firestore.pickerList();
   StreamSubscription<Rates>? _ratesSub;
   Rates _rates = Rates.defaults;
@@ -29,11 +37,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   final Map<String, bool> _deleteMode = {};
 
+  bool get _isToday => _selectedDay == _today;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _setDay();
+    _today = dayKey(DateTime.now());
+    _selectDay(_today);
     _ratesSub = _firestore.rates().listen((r) => _rates = r);
     // "Today" moves on at midnight even if the app stays open.
     _dayTimer = Timer.periodic(const Duration(minutes: 1), (_) => _checkNewDay());
@@ -52,27 +63,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) _checkNewDay();
   }
 
-  void _setDay() {
-    _today = dayKey(DateTime.now());
-    _todayEntries = _firestore.entriesForDay(_today);
+  void _selectDay(String day) {
+    _selectedDay = day;
+    _dayEntries = _firestore.entriesForDay(day);
+    _deleteMode.clear();
+  }
+
+  void _goToDay(DateTime d) {
+    final key = dayKey(d);
+    if (key.compareTo(_today) > 0 || key == _selectedDay) return; // no future days
+    setState(() => _selectDay(key));
   }
 
   void _checkNewDay() {
-    if (dayKey(DateTime.now()) != _today && mounted) setState(_setDay);
+    final now = dayKey(DateTime.now());
+    if (now == _today || !mounted) return;
+    setState(() {
+      final wasToday = _isToday;
+      _today = now;
+      // Follow the new day only if the user was looking at "today".
+      if (wasToday) _selectDay(now);
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.parse(_selectedDay),
+      firstDate: _firstDay,
+      lastDate: DateTime.parse(_today),
+      helpText: 'Day the tea was picked',
+    );
+    if (picked != null) _goToDay(picked);
   }
 
   Future<void> _refreshData() =>
-      _firestore.refreshFromServer(FirestoreService.entries.where('date', isEqualTo: _today));
+      _firestore.refreshFromServer(FirestoreService.entries.where('date', isEqualTo: _selectedDay));
 
-  void _saveEntry(String pickerName, double weight) {
-    final now = DateTime.now();
+  void _saveEntry(String pickerName, double weight, String day) {
     _firestore.addEntry(TeaEntry(
       id: const Uuid().v4(),
       pickerName: pickerName,
       weight: weight,
       enteredBy: _auth.currentUser?.displayName ?? 'Unknown',
-      createdAt: now,
-      date: dayKey(now),
+      createdAt: DateTime.now(), // when it was typed in
+      date: day, // the day the tea was picked
       wages: weight * _rates.wageRate,
       rate: _rates.wageRate,
       busFee: _rates.busFee,
@@ -82,6 +117,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Shared by the "+" floating button (choose picker) and each card's "+".
   Future<void> _showEntryDialog({String? fixedPicker}) async {
+    // Lock the day at the moment the dialog opens.
+    final day = _selectedDay;
+    final isPast = day != _today;
     String? pickerName = fixedPicker;
     String? error;
     final weightController = TextEditingController();
@@ -102,7 +140,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             } else {
               // Close first: the save is instant locally and uploads in the background.
               Navigator.pop(context);
-              _saveEntry(pickerName!, weight);
+              _saveEntry(pickerName!, weight, day);
             }
           }
 
@@ -110,12 +148,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             title: Text(fixedPicker == null ? 'Add New Entry' : 'Add Weight for $fixedPicker'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                _DayChip(day: day, isPast: isPast),
+                if (isPast)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Current rates apply: Rs ${_rates.wageRate}/kg, bus fee Rs ${_rates.busFee}',
+                      style: const TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ),
                 if (fixedPicker == null)
                   StreamBuilder<List<Picker>>(
                     stream: _pickers,
                     builder: (context, snapshot) {
-                      if (!snapshot.hasData) return const CircularProgressIndicator();
+                      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                       final names = snapshot.data!.map((p) => p.name).toList();
                       return DropdownButtonFormField<String>(
                         decoration: const InputDecoration(labelText: 'Tea Picker Name'),
@@ -169,6 +217,66 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Widget _dateBar() {
+    final selected = DateTime.parse(_selectedDay);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 4),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                tooltip: 'Previous day',
+                icon: const Icon(Icons.chevron_left),
+                onPressed: () => _goToDay(selected.subtract(const Duration(days: 1))),
+              ),
+              Flexible(
+                child: TextButton.icon(
+                  onPressed: _pickDate,
+                  icon: const Icon(Icons.calendar_month, color: Colors.green),
+                  label: Text(
+                    '${_isToday ? 'Today' : DateFormat('EEE').format(selected)}: '
+                    '${displayDateFormat.format(selected)}',
+                    style: const TextStyle(fontSize: 18, color: Colors.black87),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Next day',
+                icon: const Icon(Icons.chevron_right),
+                onPressed: _isToday ? null : () => _goToDay(selected.add(const Duration(days: 1))),
+              ),
+            ],
+          ),
+          if (!_isToday)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+              decoration: BoxDecoration(
+                color: Colors.amber[50],
+                border: Border.all(color: Colors.amber.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.history_edu, color: Colors.amber[800]),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text('Past day – new entries will be saved for this date'),
+                  ),
+                  TextButton(
+                    onPressed: () => _goToDay(DateTime.parse(_today)),
+                    child: const Text('TODAY'),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPickerCard(PickerDay day) {
     String pickerName = day.pickerName;
     bool deleteMode = _deleteMode[pickerName] ?? false;
@@ -208,7 +316,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         children: [
                           Text('weight: ${r.weight} kg'),
                           Text('entered by: ${r.enteredBy}'),
-                          Text('time: ${timeFormat.format(r.createdAt)}'),
+                          Text(
+                            r.recordedLater
+                                ? 'added later on: ${timeFormat.format(r.createdAt)}'
+                                : 'time: ${timeFormat.format(r.createdAt)}',
+                            style: r.recordedLater ? TextStyle(color: Colors.amber[900]) : null,
+                          ),
                           const Divider(),
                         ],
                       ),
@@ -245,24 +358,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    String currentDate = DateFormat('dd-MM-yyyy').format(DateTime.now());
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: _refreshData,
         child: StreamBuilder<List<TeaEntry>>(
-          stream: _todayEntries,
+          stream: _dayEntries,
           builder: (context, snapshot) {
             final days = groupByPickerDay(snapshot.data ?? const []);
+            final empty = days.isEmpty && snapshot.hasData;
             return ListView.builder(
               // Always scrollable so pull-to-refresh works on an empty day.
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.only(bottom: 80),
-              itemCount: days.length + 1,
+              itemCount: days.length + 1 + (empty ? 1 : 0),
               itemBuilder: (context, index) {
-                if (index == 0) {
+                if (index == 0) return _dateBar();
+                if (empty) {
                   return Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Center(child: Text('Today: $currentDate', style: const TextStyle(fontSize: 18))),
+                    padding: const EdgeInsets.all(32),
+                    child: Center(
+                      child: Text(
+                        _isToday ? 'No entries yet today' : 'No entries for this day yet',
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                    ),
                   );
                 }
                 return _buildPickerCard(days[index - 1]);
@@ -276,6 +395,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: const Icon(Icons.add),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    );
+  }
+}
+
+/// Shows which day an entry is being saved for, highlighted when it is a past day.
+class _DayChip extends StatelessWidget {
+  final String day;
+  final bool isPast;
+  const _DayChip({required this.day, required this.isPast});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isPast ? Colors.amber.shade800 : Colors.green.shade700;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(children: [
+        Icon(isPast ? Icons.history_edu : Icons.today, size: 18, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '${isPast ? 'Picked on' : 'Today'}: ${DateFormat('EEE, dd-MM-yyyy').format(DateTime.parse(day))}',
+            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ]),
     );
   }
 }
