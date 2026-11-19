@@ -1,0 +1,45 @@
+rules_version = '2';
+
+// Paste into Firebase Console → Firestore Database → Rules, then Publish.
+// Only these family Google accounts can read or write data.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isFamily() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in [
+          'surveyorbatangala@gmail.com',
+          'kalharabatangala@gmail.com',
+          'dilharabatangala@gmail.com',
+          'bawanthichathurmeda@gmail.com',
+          'aththanayakaupendra@gmail.com'
+        ];
+    }
+
+    // Tea weight entries. Deleting is done by setting deleted = true, so a
+    // real delete is never needed (and is blocked to protect the records).
+    match /entries/{id} {
+      allow read: if isFamily();
+      allow create, update: if isFamily()
+        && request.resource.data.weight is number;
+      allow delete: if false;
+    }
+
+    match /tea_pickers/{id} {
+      allow read, create, update: if isFamily();
+      allow delete: if false;
+    }
+
+    match /settings/{id} {
+      allow read, write: if isFamily();
+    }
+
+    // Old app's collections: kept as a backup. Writes stay open only while
+    // some phones still run the old version – change to `allow write: if false;`
+    // once every phone has the new app.
+    match /records/{id} { allow read, write: if isFamily(); }
+    match /historical_records/{id} { allow read, write: if isFamily(); }
+    match /pickers/{id} { allow read, write: if isFamily(); }
+  }
+}
