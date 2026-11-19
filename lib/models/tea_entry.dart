@@ -52,6 +52,13 @@ class TeaEntry {
 
   String get pickerKeyValue => pickerKey(pickerName);
 
+  /// The day the tea was picked (what every total and report is based on).
+  /// [createdAt] is only when the entry was typed into the app.
+  DateTime get pickedOn => DateTime.parse(date);
+
+  /// True when the entry was typed in on a later day than it was picked.
+  bool get recordedLater => dayKey(createdAt).compareTo(date) > 0;
+
   factory TeaEntry.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? const {};
     final created = DateTime.fromMillisecondsSinceEpoch(_toInt(d['created_at']));
@@ -99,6 +106,9 @@ class PickerDay {
   final List<TeaEntry> entries; // oldest first
 
   PickerDay(this.pickerName, this.date, this.entries);
+
+  DateTime get pickedOn => DateTime.parse(date);
+  bool get hasLateEntries => entries.any((e) => e.recordedLater);
 
   double get weight => entries.fold(0.0, (s, e) => s + e.weight);
   double get leafWages => entries.fold(0.0, (s, e) => s + e.wages);

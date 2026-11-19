@@ -69,8 +69,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirm Delete'),
-        content: Text('Delete ${entry.weight} kg for ${entry.pickerName} on '
-            '${DateFormat('dd-MM-yyyy h:mm a').format(entry.createdAt)}?'),
+        content: Text('Delete ${entry.weight} kg for ${entry.pickerName} picked on '
+            '${displayDateFormat.format(entry.pickedOn)}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -97,11 +97,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     setState(() => _exporting = true);
     try {
       if (pdf) {
-        await _reportService.sharePdf(
-            month: monthKey(_month),
-            monthLabel: DateFormat('MMMM yyyy').format(_month),
-            pickerName: pickerName,
-            days: days);
+        await _reportService.sharePdf(month: _month, pickerName: pickerName, days: days);
       } else {
         await _reportService.shareCsv(month: monthKey(_month), pickerName: pickerName, days: days);
       }
@@ -282,7 +278,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         children: day.entries
             .map((e) => ListTile(
                   dense: true,
-                  title: Text('${e.weight} kg  •  ${timeFormat.format(e.createdAt)}'),
+                  title: Text(e.recordedLater
+                      ? '${e.weight} kg  •  added ${DateFormat('dd-MM h:mm a').format(e.createdAt)}'
+                      : '${e.weight} kg  •  ${timeFormat.format(e.createdAt)}'),
                   subtitle: Text('entered by: ${e.enteredBy}'),
                   trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                     if (e.pendingUpload)
